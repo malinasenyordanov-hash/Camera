@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Camera</title>
+<style>
+:root{--bg:#000;--fg:#fff;--acc:#ffd60a;--pn:rgba(0,0,0,.6);--ln:rgba(255,255,255,.18)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#000;--fg:#fff;--acc:#ffd60a;--pn:rgba(0,0,0,.6);--ln:rgba(255,255,255,.18)}}
+:root[data-theme="dark"]{--bg:#000;--fg:#fff;--acc:#ffd60a;--pn:rgba(0,0,0,.6);--ln:rgba(255,255,255,.18)}
+:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+html{height:100%;scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;height:100%;background:var(--bg);color:var(--fg);font:15px -apple-system,system-ui,"Helvetica Neue",Arial,sans-serif;overflow:hidden}
+video{position:fixed;inset:0;width:100%;height:100%;object-fit:cover;background:#000}
+#ui{position:relative;height:100%;display:flex;flex-direction:column;justify-content:space-between;padding:8px 12px}
+.top{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.pill{background:var(--pn);border-radius:99px;padding:7px 12px;font-size:13px;color:var(--fg);border:0}
+.bot{display:flex;flex-direction:column;gap:12px;align-items:stretch}
+.panel{background:var(--pn);border-radius:14px;padding:10px 12px;display:flex;flex-direction:column;gap:6px;font-size:13px;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
+.row{display:flex;align-items:center;gap:10px}.row>span:first-child{width:56px}.row .v{width:56px;text-align:right;font-variant-numeric:tabular-nums}
+input[type=range]{flex:1;accent-color:var(--acc);min-width:0}
+button{font:inherit;color:var(--fg)}
+.chip{background:rgba(255,255,255,.14);border:0;border-radius:99px;padding:6px 12px;font-weight:600;font-size:13px}
+.chip.on{background:var(--acc);color:#000}
+.chips{display:flex;gap:8px;flex-wrap:wrap}
+.modes{display:flex;justify-content:center;gap:24px}
+.modes button{background:none;border:0;font-weight:600;font-size:15px;padding:4px}
+.modes button.on{color:var(--acc)}
+.shutter{align-self:center;width:78px;height:78px;border-radius:50%;border:4px solid #fff;background:none;position:relative;margin-bottom:6px;padding:0}
+.shutter i{position:absolute;inset:5px;border-radius:50%;background:#fff;transition:all .15s}
+.shutter.vid i{background:#ff3b30}.shutter.busy i{inset:22px;border-radius:8px}
+.hint{text-align:center;opacity:.85}.note{opacity:.7;font-size:12px;line-height:1.35}
+progress{width:100%;accent-color:var(--acc)}
+#grid{position:fixed;inset:0;pointer-events:none;display:none;background:linear-gradient(var(--ln),var(--ln)) 33.3% 0/1px 100% no-repeat,linear-gradient(var(--ln),var(--ln)) 66.6% 0/1px 100% no-repeat,linear-gradient(var(--ln),var(--ln)) 0 33.3%/100% 1px no-repeat,linear-gradient(var(--ln),var(--ln)) 0 66.6%/100% 1px no-repeat}
+#flash{position:fixed;inset:0;background:#fff;opacity:0;pointer-events:none;transition:opacity .25s}
+#rv{position:fixed;inset:0;background:#000;display:none;flex-direction:column;padding:calc(env(safe-area-inset-top,0px) + 10px) 12px calc(env(safe-area-inset-bottom,0px) + 12px);gap:12px;z-index:5}
+#rv .m{flex:1;min-height:0;display:flex}#rv img,#rv video.pv{position:static;width:100%;height:100%;object-fit:contain}
+#rv .b{display:flex;gap:12px}#rv .b button{flex:1;padding:14px;border-radius:12px;border:0;font-weight:700;font-size:16px;background:rgba(255,255,255,.14)}
+#rv .b .s{background:var(--acc);color:#000}
+#msg{position:fixed;left:50%;top:calc(env(safe-area-inset-top,0px) + 56px);transform:translateX(-50%);background:var(--pn);padding:8px 14px;border-radius:99px;font-size:13px;display:none;z-index:6;max-width:90%;text-align:center}
+[hidden]{display:none!important}
+</style></head><body>
+<video id="vid" playsinline muted autoplay></video>
+<div id="grid"></div><div id="flash"></div><div id="msg"></div>
+<div id="ui">
+  <div class="top"><span class="pill" id="st">Starting…</span><span style="display:flex;gap:8px"><button class="pill" id="gridBtn">Grid</button><button class="pill" id="flip">Flip</button></span></div>
+  <div class="bot">
+    <div class="panel" id="p-photo"><div class="hint">Tap the shutter to take a photo</div></div>
+    <div class="panel" id="p-pro" hidden>
+      <div id="proCtl"></div>
+      <div class="row"><span>Format</span><span class="chips"><button class="chip on" data-fmt="image/jpeg">JPEG</button><button class="chip" data-fmt="image/png">PNG</button></span></div>
+      <div class="row"><span>Quality</span><input type="range" id="q" min="50" max="100" value="92"><span class="v" id="qv">92</span></div>
+      <div class="note" id="proNote"></div>
+    </div>
+    <div class="panel" id="p-pano" hidden><div class="hint" id="panoHint">Hold upright, tap the shutter, then sweep slowly left or right</div><progress id="pp" max="180" value="0"></progress></div>
+    <div class="panel" id="p-video" hidden>
+      <div class="chips" id="resChips"><button class="chip" data-r="720">720p</button><button class="chip on" data-r="1080">1080p</button><button class="chip" data-r="2160">4K</button></div>
+      <div class="row"><span>FPS</span><input type="range" id="fps" min="1" max="120" value="30"><span class="v" id="fpsv">30</span></div>
+      <div class="chips" id="fpsChips"><button class="chip" data-f="24">24</button><button class="chip on" data-f="30">30</button><button class="chip" data-f="60">60</button><button class="chip" data-f="120">120</button></div>
+      <div class="note" id="fpsNote"></div>
+    </div>
+    <div class="modes" id="modes"><button class="on" data-m="photo">Photo</button><button data-m="pro">Pro</button><button data-m="pano">Pano</button><button data-m="video">Video</button></div>
+    <button class="shutter" id="shutter" aria-label="Shutter"><i></i></button>
+  </div>
+</div>
+<div id="rv"><div class="m" id="rvm"></div><div class="b"><button id="rvx">Discard</button><button class="s" id="rvs">Save</button></div></div>
+<script>
+const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
+const vid=$('#vid');
+const S={mode:'photo',facing:'environment',res:1080,fps:30,stream:null,rec:null,fmt:'image/jpeg',q:.92,panoOn:false};
+const RES={720:[1280,720],1080:[1920,1080],2160:[3840,2160]};
+let dl=null,P=null,pending=null,tick=null,msgT=null;
+(async()=>{try{dl=await window.claude?.use('downloads')}catch(e){}})();
+const track=()=>S.stream&&S.stream.getVideoTracks()[0];
+function msg(t){const m=$('#msg');m.textContent=t;m.style.display='block';clearTimeout(msgT);msgT=setTimeout(()=>m.style.display='none',3000)}
+
+async function start(){
+  stopStream();
+  const m=S.mode;let w,h;
+  if(m==='video')[w,h]=RES[S.res];else if(m==='pano')[w,h]=[1920,1080];else[w,h]=[4032,3024];
+  const v={facingMode:{ideal:S.facing},width:{ideal:w},height:{ideal:h}};
+  if(m==='video')v.frameRate={ideal:S.fps};
+  try{S.stream=await navigator.mediaDevices.getUserMedia({video:v,audio:m==='video'})}
+  catch(e){try{S.stream=await navigator.mediaDevices.getUserMedia({video:v})}
+    catch(e2){$('#st').textContent='No camera';msg('Camera blocked ('+e2.name+'). Allow camera access and reload.');return}}
+  vid.srcObject=S.stream;await vid.play().catch(()=>{});
+  const s=track().getSettings();
+  $('#st').textContent=`${s.width||'?'}×${s.height||'?'}`+(s.frameRate?` · ${Math.round(s.frameRate)} fps`:'');
+  if(m==='video'&&s.frameRate){const got=Math.round(s.frameRate);
+    $('#fpsNote').textContent=got<S.fps?`Camera delivers ${got} fps at this resolution. Try 1080p or 720p for higher rates.`:`Recording at ${got} fps.`}
+  if(m==='pro')buildPro();
+}
+function stopStream(){if(S.stream){S.stream.getTracks().forEach(t=>t.stop());S.stream=null}}
+
+/* Modes */
+$$('#modes button').forEach(b=>b.onclick=()=>{
+  if(S.rec||S.panoOn)return;
+  S.mode=b.dataset.m;$$('#modes button').forEach(x=>x.classList.toggle('on',x===b));
+  ['photo','pro','pano','video'].forEach(k=>$('#p-'+k).hidden=k!==S.mode);
+  $('#shutter').classList.toggle('vid',S.mode==='video');start()});
+$('#flip').onclick=()=>{if(S.rec||S.panoOn)return;S.facing=S.facing==='environment'?'user':'environment';start()};
+$('#gridBtn').onclick=()=>{const g=$('#grid');g.style.display=g.style.display==='block'?'none':'block'};
+
+/* Pro */
+const PRO=[['zoom','Zoom',v=>v.toFixed(1)+'×'],['exposureCompensation','EV',v=>v.toFixed(1)],['iso','ISO',v=>Math.round(v)],
+ ['exposureTime','Shutter',v=>'1/'+Math.round(1e4/v)],['focusDistance','Focus',v=>v.toFixed(2)],['colorTemperature','WB',v=>Math.round(v)+'K']];
+const AUTO={iso:['exposureMode','continuous'],exposureTime:['exposureMode','continuous'],focusDistance:['focusMode','continuous'],colorTemperature:['whiteBalanceMode','continuous']};
+const MAN={iso:'exposureMode',exposureTime:'exposureMode',focusDistance:'focusMode',colorTemperature:'whiteBalanceMode'};
+function buildPro(){
+  const box=$('#proCtl');box.innerHTML='';
+  const caps=(track()&&track().getCapabilities)?track().getCapabilities():{};let n=0;
+  for(const[k,label,fmt]of PRO){
+    const c=caps[k];if(!c||c.min===undefined)continue;n++;
+    const set=track().getSettings()[k];
+    const r=document.createElement('div');r.className='row';
+    r.innerHTML=`<span>${label}</span><input type="range" min="${c.min}" max="${c.max}" step="${c.step||(c.max-c.min)/100}" value="${set??c.min}"><span class="v">${set!==undefined?fmt(set):'auto'}</span>`;
+    if(AUTO[k]){const a=document.createElement('button');a.className='chip on';a.textContent='A';r.append(a);
+      a.onclick=()=>{track().applyConstraints({advanced:[{[AUTO[k][0]]:AUTO[k][1]}]}).catch(()=>{});a.classList.add('on');r.querySelector('.v').textContent='auto'}}
+    const inp=r.querySelector('input'),val=r.querySelector('.v');
+    inp.oninput=()=>{const v=+inp.value;val.textContent=fmt(v);const o={[k]:v};if(MAN[k])o[MAN[k]]='manual';
+      track().applyConstraints({advanced:[o]}).catch(()=>{});const a=r.querySelector('.chip');if(a)a.classList.remove('on')};
+    box.append(r)}
+  $('#proNote').textContent=n?'':"Safari on iPhone doesn't let web pages control ISO, shutter, focus or white balance. Here, Pro gives full-resolution capture, format and quality, and the grid.";
+}
+$$('[data-fmt]').forEach(b=>b.onclick=()=>{S.fmt=b.dataset.fmt;$$('[data-fmt]').forEach(x=>x.classList.toggle('on',x===b))});
+$('#q').oninput=e=>{S.q=e.target.value/100;$('#qv').textContent=e.target.value};
+
+/* Video options + custom FPS */
+$$('#resChips button').forEach(b=>b.onclick=()=>{if(S.rec)return;S.res=+b.dataset.r;$$('#resChips button').forEach(x=>x.classList.toggle('on',x===b));start()});
+const fpsIn=$('#fps');
+function setFps(f){S.fps=f;fpsIn.value=f;$('#fpsv').textContent=f;$$('#fpsChips button').forEach(x=>x.classList.toggle('on',+x.dataset.f===f))}
+fpsIn.oninput=()=>setFps(+fpsIn.value);
+fpsIn.onchange=()=>{if(!S.rec)start()};
+$$('#fpsChips button').forEach(b=>b.onclick=()=>{if(S.rec)return;setFps(+b.dataset.f);start()});
+
+/* Capture */
+$('#shutter').onclick=()=>{
+  if(S.mode==='photo'||S.mode==='pro')shoot();
+  else if(S.mode==='video')toggleRec();
+  else S.panoOn?panoStop():panoStart()};
+function flash(){const f=$('#flash');f.style.opacity=.8;setTimeout(()=>f.style.opacity=0,80)}
+function toBlob(c,type,q){return new Promise(r=>c.toBlob(r,type,q))}
+async function shoot(){
+  const c=document.createElement('canvas');c.width=vid.videoWidth;c.height=vid.videoHeight;
+  c.getContext('2d').drawImage(vid,0,0);flash();
+  review(await toBlob(c,S.fmt,S.q),'image',S.fmt==='image/png'?'png':'jpg')}
+
+/* Video recording */
+function toggleRec(){
+  if(S.rec){S.rec.stop();return}
+  if(!window.MediaRecorder){msg('Video recording needs iOS 14.3 or newer');return}
+  const mt=['video/mp4;codecs=avc1','video/mp4','video/webm;codecs=vp9','video/webm'].find(t=>MediaRecorder.isTypeSupported(t))||'';
+  const chunks=[];const bps=S.res===2160?35e6:S.res===1080?14e6:8e6;
+  const r=new MediaRecorder(S.stream,mt?{mimeType:mt,videoBitsPerSecond:bps}:{videoBitsPerSecond:bps});
+  r.ondataavailable=e=>e.data&&e.data.size&&chunks.push(e.data);
+  r.onstop=()=>{clearInterval(tick);const type=r.mimeType||mt||'video/mp4';S.rec=null;
+    $('#shutter').classList.remove('busy');
+    review(new Blob(chunks,{type}),'video',type.includes('mp4')?'mp4':'webm')};
+  r.start(1000);S.rec=r;$('#shutter').classList.add('busy');
+  const t0=Date.now();tick=setInterval(()=>{const s=Math.floor((Date.now()-t0)/1000);
+    $('#st').textContent=`● ${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`},500)}
+
+/* Panorama: gyro-triggered center strips stitched side by side */
+const STEP=7,MAXDEG=180;
+function bearing(e){const r=Math.PI/180,a=e.alpha*r,b=e.beta*r,g=e.gamma*r;
+  const x=-(Math.sin(g)*Math.cos(a)+Math.cos(g)*Math.sin(b)*Math.sin(a));
+  const y=-(Math.sin(g)*Math.sin(a)-Math.cos(g)*Math.sin(b)*Math.cos(a));
+  return Math.atan2(x,y)/r}
+async function panoStart(){
+  if(window.DeviceOrientationEvent&&DeviceOrientationEvent.requestPermission){
+    const r=await DeviceOrientationEvent.requestPermission().catch(()=>'denied');
+    if(r!=='granted'){msg('Motion access is needed for panorama');return}}
+  P={strips:[],last:null,travelled:0,dir:0};S.panoOn=true;
+  $('#shutter').classList.add('busy');$('#pp').value=0;$('#panoHint').textContent='Keep sweeping… tap to finish';
+  addEventListener('deviceorientation',onOri)}
+function grab(deg){
+  const w=vid.videoWidth,h=vid.videoHeight,fov=w<h?50:65;
+  const sw=Math.max(6,Math.min(w,Math.round(w*deg/fov)));
+  const c=document.createElement('canvas');c.width=sw;c.height=h;
+  c.getContext('2d').drawImage(vid,(w-sw)/2,0,sw,h,0,0,sw,h);P.strips.push(c)}
+function onOri(e){
+  if(!P||e.alpha==null)return;const yaw=bearing(e);
+  if(P.last===null){P.last=yaw;grab(STEP);return}
+  let d=((yaw-P.last+540)%360)-180;
+  if(!P.dir&&Math.abs(d)>1.5)P.dir=Math.sign(d);
+  if(!P.dir||d*P.dir<0||Math.abs(d)<STEP)return;
+  P.last=yaw;P.travelled+=Math.abs(d);grab(Math.abs(d));$('#pp').value=P.travelled;
+  if(P.travelled>=MAXDEG)panoStop()}
+async function panoStop(){
+  removeEventListener('deviceorientation',onOri);S.panoOn=false;
+  $('#shutter').classList.remove('busy');$('#panoHint').textContent='Hold upright, tap the shutter, then sweep slowly left or right';
+  let s=P.strips;const dir=P.dir;P=null;
+  if(s.length<2){msg('Sweep a bit further and try again');return}
+  if(dir<0)s=s.slice().reverse();
+  const o=document.createElement('canvas');o.width=s.reduce((a,c)=>a+c.width,0);o.height=s[0].height;
+  const x=o.getContext('2d');let px=0;s.forEach(c=>{x.drawImage(c,px,0);px+=c.width});
+  review(await toBlob(o,'image/jpeg',.92),'image','jpg')}
+
+/* Review + save */
+function review(blob,kind,ext){
+  if(!blob){msg('Capture failed');return}
+  pending={blob,ext,kind};const url=URL.createObjectURL(blob);pending.url=url;
+  $('#rvm').innerHTML=kind==='video'?`<video class="pv" src="${url}" controls playsinline></video>`:`<img src="${url}" alt="Captured">`;
+  $('#rv').style.display='flex';start_idle(true)}
+function start_idle(on){if(on)stopStream();else start()}
+function closeRv(){if(!pending)return;URL.revokeObjectURL(pending.url);pending=null;$('#rv').style.display='none';$('#rvm').innerHTML='';start()}
+$('#rvx').onclick=closeRv;
+$('#rvs').onclick=async()=>{
+  if(!pending)return;const name=`${pending.kind==='video'?'video':'photo'}-${Date.now()}.${pending.ext}`;
+  try{
+    if(dl)await dl.save({filename:name,data:pending.blob});
+    else{const a=document.createElement('a');a.href=pending.url;a.download=name;a.click()}
+    msg('Saved');closeRv()
+  }catch(e){if(e&&e.code==='declined')return;msg('Could not save: '+(e&&e.message||'error'))}};
+
+start();
+</script></body></html>
